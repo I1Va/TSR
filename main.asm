@@ -36,10 +36,12 @@ start:
 MyINT09         proc
                 push    ax bx cx dx ds si es di
 
+                mov     al, cs:INT09_TOGGLE
+                call debug_draw_char
+
                 in      al, 60h
                 cmp     al, POP_KEY
                 je      do_pop
-
                 jmp     ChainOldISR
 
 
@@ -52,35 +54,61 @@ do_pop:
                 xchg    ah, al
                 out     61h, al
 
+                xor     ax, ax
+                mov     al, INT09_TOGGLE
+                neg     al
+                mov     cs:INT09_TOGGLE, al
+                cmp     al, 1d
+                je      ChainOldISR
+
+                push    cs
+                pop     ds
+                mov     bx, VIDEOSEG
+                mov     es, bx
 
                 mov     ah, 4eh
-                push    cs
-                pop     ds
-                mov     si, offset msg_string
+                mov     si, offset RECT_STYLE
+                mov     bx, 9
+                mov     cx, 9
 
-                mov     bx, VIDEOSEG
-                mov     es, bx
-                mov     di, 5 * 80 * 2 + 15 * 2
+                mov     di, CONSOLE_WIDTH               ;|
+                sub     di, cx                          ;| di = (CONSOLE_WIDTH - cx - 1) * 2
+                add     di, CONSOLE_WIDTH
+                shl     di, 1                           ;| left upper rect corner addr
+
+                push di
+                call draw_rect
+                pop di
+
+                add     di, 2
+                add     di, CONSOLE_WIDTH * 2
+
+                mov     si, offset AX_REG_EQU
+                push di
+                call draw_string
+                pop di
+
+                add     di, CONSOLE_WIDTH * 2
+                mov     si, offset BX_REG_EQU
+                push di
+                call draw_string
+                pop di
+
+                add     di, CONSOLE_WIDTH * 2
+                mov     si, offset CX_REG_EQU
+                push di
+                call draw_string
+                pop di
+
+                add     di, CONSOLE_WIDTH * 2
+                mov     si, offset DX_REG_EQU
+                push di
+                call draw_string
+                pop di
 
 
-                call    draw_string
 
                 jmp     ChainOldISR
-
-
-@@error:
-                mov     ah, 11001001b
-                push    cs
-                pop     ds
-
-                mov     bx, VIDEOSEG
-                mov     es, bx
-                mov     di, 0
-                mov     al, 'E'
-
-                mov     es:[di], ax
-
-                jmp ChainOldISR
 
                 iret
                 endp
@@ -134,17 +162,23 @@ draw_string     proc
 ;------------------------------------------
 ;------------------------------------------
 ; Descr:
-;       Draws a char by addr ES:DI
+;       Draws a char in videoseg by addr 0
 ; Entry:
-;       AH      ; color attr
 ;       AL      ; char ascii code
-;       ES:DI   ; char output addr
 ; Desroy:
 ;       None
 ;------------------------------------------
 debug_draw_char    proc
 
+                push ax bx es di
+
+                mov     ah, 11001111b
+                mov     bx, VIDEOSEG
+                mov     es, bx
+                mov     di, 0d
                 mov     es:[di], ax
+                pop di es bx ax
+
                 ret
                 endp
 ;------------------------------------------
@@ -200,7 +234,7 @@ draw_pat_line   proc
 ;       CX      - rectangle width
 ;       ES:DI   - rectangle upper left corner
 ; Destr:
-;       AX, SI
+;       AX, SI, DI
 ;------------------------------------------
 draw_rect       proc
                 push bx                                 ;|
@@ -253,36 +287,20 @@ jg @@while;---------------------------------------------; while end }
 ;##########################################
 
 
-
-;##########################################
-;               print_msg
-;------------------------------------------
-;------------------------------------------
-; Print string,
-;   placed in msg_string asm variable
-; Entry:
-; Exit: None
-; Destr: None
-;------------------------------------------
-print_msg       proc
-                push    ax dx ds
-                push    cs
-                pop     ds
-                mov     ah, 09h                             ;
-                mov     dx, offset msg_string               ; dx = &msg_string
-                int     21h                                 ; print(dx)
-                pop     ds dx ax
-                ret
-                endp
-;------------------------------------------
-;##########################################
-
 .data
-VIDEOSEG        equ 0b800h
-COUNTER         dw  2006h
-POP_KEY         equ 22h                                     ; G scancode
-msg_string      db 'Hello, I am crazy TSR', '%', '$'
-TEXT_END_CHAR   equ '%'
+VIDEOSEG                equ 0b800h
+POP_KEY                 equ 22h             ; 'G'
+TEXT_END_CHAR           equ '%'
+CONSOLE_WIDTH           equ 80d
+CONSOLE_HEIGH           equ 25d
+RECT_STYLE              db "+=+|.|+=+$"
+
+AX_REG_EQU              db "AX=%$"
+BX_REG_EQU              db "BX=%$"
+CX_REG_EQU              db "CX=%$"
+DX_REG_EQU              db "DX=%$"
+
+INT09_TOGGLE            db -1d
 
 TSR_END:
 
