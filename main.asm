@@ -2,13 +2,6 @@
 .186
 locals @@
 
-.data
-VIDEOSEG        equ 0b800h
-COUNTER         dw  2006h
-POP_KEY         equ 22h                                     ; G scancode
-msg_string      db 'Hello', '%', '$'
-TEXT_END_CHAR   equ '%'
-
 .code
 org 100h
 
@@ -69,12 +62,13 @@ do_pop:
                 mov     es, bx
                 mov     di, 5 * 80 * 2 + 15 * 2
 
-                mov     cx, ds
+
                 call    draw_string
+
                 jmp     ChainOldISR
 
 
-TSR_ERROR:
+@@error:
                 mov     ah, 11001001b
                 push    cs
                 pop     ds
@@ -100,9 +94,8 @@ old09seg        dw      0                               ; old ISR segment
 
 
 ;##########################################
-;               TSR_draw_string
+;               draw_string
 ;------------------------------------------
-; WARNING: DS CHANGES INTO FUNCTION BODY
 ;------------------------------------------
 ; Descr:
 ;       Draws a string by addr ES:DI untill
@@ -115,22 +108,18 @@ old09seg        dw      0                               ; old ISR segment
 ;       AL, BX, CX, SI, DI
 ;------------------------------------------
 draw_string     proc
+                cld                                     ; DF = 0 (++)
+@@while:;-----------------------------------------------; while (CX != 0) {
+                lodsb                                   ;       al = ds:[si++]
 
-                cld
+                cmp     al, TEXT_END_CHAR               ;|      if al == TEXT_END_CHAR: jmp end
+                je      @@end                           ;|
 
-                mov     ax, ds
-                cmp     ax, cx
-                jne     TSR_ERROR
+                stosw                                   ;|      es:[di+=2] = ax                             ;       es:[di++] = ax
+                jmp @@while
+;-------------------------------------------------------; while end }
 
-                mov     al, ds:[si]
-                mov     es:[di], ax
-
-                inc     si
-                add     di, 2d
-
-                mov     al, ds:[si]
-                mov     es:[di], ax
-
+@@end:
                 ret
                 endp
 ;------------------------------------------
@@ -288,6 +277,14 @@ print_msg       proc
 ;------------------------------------------
 ;##########################################
 
+.data
+VIDEOSEG        equ 0b800h
+COUNTER         dw  2006h
+POP_KEY         equ 22h                                     ; G scancode
+msg_string      db 'Hello, I am crazy TSR', '%', '$'
+TEXT_END_CHAR   equ '%'
+
 TSR_END:
 
 end start
+
