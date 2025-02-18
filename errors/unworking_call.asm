@@ -6,7 +6,7 @@ locals @@
 VIDEOSEG        equ 0b800h
 COUNTER         dw  2006h
 POP_KEY         equ 22h                                     ; G scancode
-msg_string      db 'EbaniyTSRBLYAT', '%', '$'
+msg_string      db 'Hello', '%', '$'
 TEXT_END_CHAR   equ '%'
 
 .code
