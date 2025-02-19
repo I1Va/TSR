@@ -36,16 +36,14 @@ start:
 MyINT09         proc
                 push    ax bx cx dx ds si es di
 
-                mov     al, cs:INT09_TOGGLE
-                call debug_draw_char
-
                 in      al, 60h
                 cmp     al, POP_KEY
                 je      do_pop
                 jmp     ChainOldISR
-
-
 do_pop:
+                pop     di es si ds dx cx bx ax
+                push    ax bx cx dx ds si es di
+                push    ax bx cx dx                     ; FIXME: args preparing
 
                 in      al, 61h
                 mov     ah, al
@@ -54,59 +52,12 @@ do_pop:
                 xchg    ah, al
                 out     61h, al
 
-                xor     ax, ax
-                mov     al, INT09_TOGGLE
-                neg     al
-                mov     cs:INT09_TOGGLE, al
-                cmp     al, 1d
-                je      ChainOldISR
+                push    cs                              ;|
+                pop     ds                              ;| ds = cs (code segment)
+                mov     si, offset RECT_STYLE           ; si = rect style mem addr
+                mov     ah, 4eh                         ; ah - color
 
-                push    cs
-                pop     ds
-                mov     bx, VIDEOSEG
-                mov     es, bx
-
-                mov     ah, 4eh
-                mov     si, offset RECT_STYLE
-                mov     bx, 9
-                mov     cx, 9
-
-                mov     di, CONSOLE_WIDTH               ;|
-                sub     di, cx                          ;| di = (CONSOLE_WIDTH - cx - 1) * 2
-                add     di, CONSOLE_WIDTH
-                shl     di, 1                           ;| left upper rect corner addr
-
-                push di
-                call draw_rect
-                pop di
-
-                add     di, 2
-                add     di, CONSOLE_WIDTH * 2
-
-                mov     si, offset AX_REG_EQU
-                push di
-                call draw_string
-                pop di
-
-                add     di, CONSOLE_WIDTH * 2
-                mov     si, offset BX_REG_EQU
-                push di
-                call draw_string
-                pop di
-
-                add     di, CONSOLE_WIDTH * 2
-                mov     si, offset CX_REG_EQU
-                push di
-                call draw_string
-                pop di
-
-                add     di, CONSOLE_WIDTH * 2
-                mov     si, offset DX_REG_EQU
-                push di
-                call draw_string
-                pop di
-
-
+                call    show_register_tablet
 
                 jmp     ChainOldISR
 
@@ -120,6 +71,124 @@ old09fs         dw      0                               ; old ISR address
 old09seg        dw      0                               ; old ISR segment
 
 
+;##########################################
+;           show_register_tablet
+;------------------------------------------
+;------------------------------------------
+; Descr:
+;       Draws a tablet with registers (AX, BX, CX, DX) info
+;       at right upper corner in VIDEOSEG
+; Entry:
+;       AH    - rectangle color attr
+;       DS:SI - rectangle style mem addr
+;       pops from stack values from registers
+;       push them in stack in order: AX, BX, CX, DX
+; Desroy: AX, BX, CX,
+;-------------------------------------------------------
+show_register_tablet     proc
+                push    bp                              ;| save prev bp
+                mov     bp, sp                          ;| bp = sp
+
+
+                mov     bx, VIDEOSEG                    ;|
+                mov     es, bx                          ;| es = VIDEOSEG
+
+                mov     bx, 9                           ;| rect height
+                mov     cx, 9                           ;| rect width
+
+                mov     di, CONSOLE_WIDTH               ;|
+                sub     di, cx                          ;| di = (CONSOLE_WIDTH - cx - 1) * 2
+                add     di, CONSOLE_WIDTH
+                shl     di, 1                           ;| di - left upper rect corner addr
+
+                push    di                              ;|
+                call    draw_rect                       ;| draw frame
+                pop     di                              ;|
+
+                add     di, 2                           ;|
+                add     di, CONSOLE_WIDTH * 2           ;| di - addr of first row in frame
+
+                mov     si, offset AX_REG_EQU
+                push    di
+                call    draw_string
+                mov     bx, [bp + 8]                    ; 1st stack arg. AX
+                call    draw_16bits
+                pop     di
+
+                add     di, CONSOLE_WIDTH * 2
+                mov     si, offset BX_REG_EQU
+                push    di
+                call    draw_string
+                mov     bx, [bp + 6]                    ; 2nd stack arg. BX
+                call    draw_16bits
+                pop     di
+
+                add     di, CONSOLE_WIDTH * 2
+                mov     si, offset CX_REG_EQU
+                push di
+                call draw_string
+                mov     bx, [bp + 4]                    ; 3rd stack arg. BX
+                call    draw_16bits
+                pop di
+
+                add     di, CONSOLE_WIDTH * 2
+                mov     si, offset DX_REG_EQU
+                push di
+                call draw_string
+                mov     bx, [bp + 2]                    ; 4th stack arg. BX
+                call    draw_16bits
+                pop di
+
+
+
+                pop     bp                              ; restore prev bp val
+                ret     8d                              ; stack args clear, ret
+                endp
+;------------------------------------------
+;##########################################
+
+
+;##########################################
+;               draw_16bits
+;------------------------------------------
+;------------------------------------------
+; Descr:
+;       Draws a hex presentation of 16 bits number on ES:DI addr
+; Entry:
+;       AH      ; color attr
+;       BX      ; input number
+;       ES:DI   ; line beginning addr
+; Desroy: BX, CX, AX, DI, SI
+;------------------------------------------------------;
+draw_16bits     proc
+
+                mov     si, bx                          ; save bx
+                xor     cx, cx                          ; cx = 0
+@@WHILE:;-----------------------------------------------;
+                mov     bx, si                          ; restore bx
+
+                shl     bx, cl                          ; mov char number of cl to
+                shr     bx, 12d                         ; lower place
+
+                cmp     bx, 10                          ; bx - digit?
+                jl      @@DIGITS
+@@LETTERS:
+                add     bx, 7h                          ;|
+@@DIGITS:                                               ;| bx -> ASCII
+                add     bx, DIGITS_SHIFT                ;|
+
+                mov     al, bl                          ;| al - ASCII code
+                stosw                                   ;| es:[di+=2] = ax
+
+                add     cl, 4d                          ;| next char
+
+                cmp     cl, 16d                         ;| if 4 char were written -> end
+                jne     @@WHILE
+;WHILE_END----------------------------------------------;
+                ret
+                endp
+;------------------------------------------
+;##########################################
 
 ;##########################################
 ;               draw_string
@@ -184,9 +253,7 @@ debug_draw_char    proc
 ;------------------------------------------
 
 
-;//----------DEBUG_FUNCTIONS. SLOW. SIMPLE. SAFE-------------//
-
-
+;//----------DEBUG_FUNCTIONS_END. SLOW. SIMPLE. SAFE-------------//
 
 ;##########################################
 ;               draw_pat_line
@@ -294,6 +361,7 @@ TEXT_END_CHAR           equ '%'
 CONSOLE_WIDTH           equ 80d
 CONSOLE_HEIGH           equ 25d
 RECT_STYLE              db "+=+|.|+=+$"
+DIGITS_SHIFT            equ 30h
 
 AX_REG_EQU              db "AX=%$"
 BX_REG_EQU              db "BX=%$"
