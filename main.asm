@@ -72,6 +72,7 @@ ToggleTable     proc
                 jmp     @@end
 @@set_off:
                 mov     al, 00h
+                ;call    load_screen
                 jmp     @@end
 @@end:
                 mov     cs:[REG_TABLE_TOGGLE], al
@@ -121,14 +122,24 @@ MyINT08         proc
 
                 push    ax bx cx dx ds si es di
 
+;*****************************DEBUG**************************************
                 xor     bx, bx
                 mov     bl, cs:[REG_TABLE_TOGGLE]
+                push    di
+                mov     di, 2 * CONSOLE_WIDTH * 0
                 call    debug_draw_16bits
+                pop     di
+;*****************************DEBUG**************************************
 
                 mov     al, cs:[REG_TABLE_TOGGLE]
                 cmp     al, 01h
-                jne     @@end
+                je      @@start
 
+                ;call    save_screen                     ; save last screen while tablet is off
+
+                jmp     @@end
+
+@@start:
                 pop     di es si ds dx cx bx ax
                 push    ax bx cx dx ds si es di
                 push    ax bx cx dx
@@ -247,6 +258,7 @@ draw_16bits     proc
 
                 mov     si, bx                          ; save bx
                 xor     cx, cx                          ; cx = 0
+                cld                                     ; DF = 0 (++)
 @@WHILE:;-----------------------------------------------;
                 mov     bx, si                          ; restore bx
 
@@ -314,8 +326,9 @@ draw_string     proc
 ;------------------------------------------
 ;------------------------------------------
 ; Descr:
-;       Draws a hex presentation of 16 bits number in videoseg by addr 0
+;       Draws a hex presentation of 16 bits number in videoseg by bias
 ; Entry:
+;       DI      ; VIDEOSEG bias
 ;       BX      ; input number
 ; Desroy: ?
 ;------------------------------------------------------;
@@ -323,11 +336,12 @@ debug_draw_16bits     proc
 
                 push    ax bx cx es di
 
-                mov     ah, 11001111b
 
                 mov     cx, VIDEOSEG
                 mov     es, cx
-                mov     di, 0d
+
+                xor     ax, ax
+                mov     ah, 11001111b
 
                 call    draw_16bits
 
@@ -365,7 +379,6 @@ debug_draw_char    proc
 
 
 ;//----------DEBUG_FUNCTIONS_END. SLOW. SIMPLE. SAFE-------------//
-
 ;##########################################
 ;               draw_pat_line
 ;------------------------------------------
@@ -465,6 +478,94 @@ jg @@while;---------------------------------------------; while end }
 ;##########################################
 
 
+
+;##########################################
+;               save_screen
+;------------------------------------------
+;------------------------------------------
+; Descr:
+;       Saves VIDEOSEG CONSOLE_WIDTH * CONSOLE_HEIGH
+;        to TWIN_VIDEO_MEM
+; Entry:
+;       None
+; Desroy:
+;       None
+;------------------------------------------
+save_screen     proc
+
+                push    ax si di es ds
+                cld                                     ; DF = 0 (++)
+
+                mov     ax, VIDEOSEG                    ;|
+                mov     ds, ax                          ;| ds = VIDEOSEG
+                push    cs                              ;|
+                pop     es                              ;| es = cs (TWIN_VIDEO_MEM segment)
+
+                xor     si, si                          ; si = 0
+                xor     di, di                          ; di = 0
+
+@@WHILE:;-------------------------------------------------------;while (di != C_H * C_W) {
+                lodsw                                          ;    ax = ds:[si+=2]
+                stosw                                          ;    es:[di+=2] = ax
+
+                cmp     di, CONSOLE_HEIGH * CONSOLE_WIDTH * 2
+;*****************************DEBUG**************************************
+                push    bx di
+                mov     bx, 0AAAAh
+                push    di
+                mov     di, 2 * CONSOLE_WIDTH * 2
+                call    debug_draw_16bits
+                pop     di bx
+;*****************************DEBUG**************************************
+
+                jl      @@WHILE
+;WHILE_END;-----------------------------------------------------; }\
+                pop     ds es di si ax
+                ret
+                endp
+;------------------------------------------
+;##########################################
+
+;##########################################
+;               load_screen
+;------------------------------------------
+;------------------------------------------
+; Descr:
+;       Loads VIDEOSEG CONSOLE_WIDTH * CONSOLE_HEIGH
+;        from TWIN_VIDEO_MEM
+; Entry:
+;       None
+; Desroy:
+;       None
+;------------------------------------------
+load_screen     proc
+
+                push    ax si di es ds
+                cld                                     ; DF = 0 (++)
+
+                mov     ax, VIDEOSEG                    ;|
+                mov     es, ax                          ;| es = VIDEOSEG
+                push    cs                              ;|
+                pop     ds                              ;| ds = cs (TWIN_VIDEO_MEM segment)
+
+
+
+                xor     si, si                          ; si = 0
+                xor     di, di                          ; di = 0
+
+@@WHILE:;-------------------------------------------------------;while (di != C_H * C_W) {
+                lodsw                                          ;    ax = ds:[si+=2]
+                stosw                                          ;    es:[di+=2] = ax
+                cmp     di, CONSOLE_HEIGH * CONSOLE_WIDTH * 2
+                jl      @@WHILE
+;WHILE_END;-----------------------------------------------------; }\
+                pop     ds es di si ax
+                ret
+                endp
+;------------------------------------------
+;##########################################
+
+
 .data
 
 REG_TABLE_TOGGLE        db  00h
@@ -474,8 +575,12 @@ REG_TABLE_TOGGLE_DELAY  dw  0006h
 VIDEOSEG                equ 0b800h
 POP_KEY                 equ 22h             ; 'G'
 TEXT_END_CHAR           equ '%'
+
 CONSOLE_WIDTH           equ 80d
 CONSOLE_HEIGH           equ 25d
+CONSOLE_WIDTH_BYTE      db  80d
+CONSOLE_HEIGH_BYTE      db  25d
+
 RECT_STYLE              db "+=+|.|+=+$"
 DIGITS_SHIFT            equ 30h
 
@@ -483,6 +588,11 @@ AX_REG_EQU              db "AX=%$"
 BX_REG_EQU              db "BX=%$"
 CX_REG_EQU              db "CX=%$"
 DX_REG_EQU              db "DX=%$"
+
+
+TWIN_VIDEO_MEM           dw CONSOLE_WIDTH*CONSOLE_HEIGH dup(?)
+
+
 
 TSR_END:
 
