@@ -6,32 +6,83 @@ locals @@
 org 100h
 
 start:
-                xor     ax, ax
-                mov     es, ax
-                mov     bx, 09h * 4
+                xor     ax, ax                          ;|
+                mov     es, ax                          ;|
+                mov     bx, 09h * 4                     ;|
+                mov     ax, es:[bx]                     ;| save old INT09 addr
+                mov     old09fs, ax                     ;|
+                mov     ax, es:[bx + 2]                 ;|
+                mov     old09seg, ax                    ;|
 
-                mov     ax, es:[bx]
-                mov     old09fs, ax
+                xor     ax, ax                          ;|
+                mov     es, ax                          ;|
+                mov     bx, 08h * 4                     ;|
+                mov     ax, es:[bx]                     ;| save old INT09 addr
+                mov     old08fs, ax                     ;|
+                mov     ax, es:[bx + 2]                 ;|
+                mov     old08seg, ax                    ;|
 
-                mov     ax, es:[bx + 2]
-                mov     old09seg, ax
 
-                cli
+                cli                                     ; stop interrupt processing
 
-                mov     word ptr es:[bx], offset MyINT09
-                push    cs
+                mov     bx, 09h * 4                     ;|
+                mov     word ptr es:[bx], offset MyINT09;|
+                push    cs                              ;| INT09 address replacing
+                pop     ax                              ;|
+                mov     es:[bx + 2], ax                 ;|
+
+                mov     bx, 08h * 4                     ;|
+                mov     word ptr es:[bx], offset MyINT08;|
+                push    cs                              ;| INT08 address replacing
+                pop     ax                              ;|
+                mov     es:[bx + 2], ax                 ;|
+
+                sti                                     ; renewal interrupt processing
+
+
+                mov     ax, 3100h                       ;| Exit with Staing Resident
+                mov     dx, offset TSR_END              ;| dx - count of pages, occupied by TSR program
+                shr     dx, 4                           ;|
+                inc     dx                              ;|
+                int     21h                             ;|
+
+
+ToggleTable     proc
+                push    ax
+
+                ;mov     ax, cs:[REG_TABLE_TOGGLE_TIMER]
+                ;cmp     ax, 0000h
+                ;je      @@toggle
+                ;dec     ax
+                ;mov     cs:[REG_TABLE_TOGGLE_TIMER], ax
+                ;jmp     @@return
+
+
+@@toggle:
+                mov     ax, cs:[REG_TABLE_TOGGLE_DELAY]
+                mov     cs:[REG_TABLE_TOGGLE_TIMER], ax
+
+                mov     al, cs:[REG_TABLE_TOGGLE]
+                cmp     al, 00h
+                je      @@set_on
+                jne     @@set_off
+
+@@set_on:
+                mov     al, 01h
+                jmp     @@end
+@@set_off:
+                mov     al, 00h
+                jmp     @@end
+@@end:
+                mov     cs:[REG_TABLE_TOGGLE], al
+@@return:
                 pop     ax
-                mov     es:[bx + 2], ax
+                ret
+                endp
 
-                sti
 
-                int     09h
 
-                mov     ax, 3100h
-                mov     dx, offset TSR_END
-                shr     dx, 4
-                inc     dx
-                int     21h
+
 
 MyINT09         proc
                 push    ax bx cx dx ds si es di
@@ -39,11 +90,11 @@ MyINT09         proc
                 in      al, 60h
                 cmp     al, POP_KEY
                 je      do_pop
-                jmp     ChainOldISR
+                jmp     JmpOldINT09
 do_pop:
-                pop     di es si ds dx cx bx ax
-                push    ax bx cx dx ds si es di
-                push    ax bx cx dx                     ; FIXME: args preparing
+
+                call ToggleTable
+
 
                 in      al, 61h
                 mov     ah, al
@@ -52,6 +103,36 @@ do_pop:
                 xchg    ah, al
                 out     61h, al
 
+                jmp     JmpOldINT09
+
+                iret
+                endp
+
+JmpOldINT09:
+                pop     di es si ds dx cx bx ax         ; restore prev registers
+                db      0eah                            ; 0eah = jmp
+old09fs         dw      0                               ; old ISR address
+old09seg        dw      0                               ; old ISR segment
+
+
+
+
+MyINT08         proc
+
+                push    ax bx cx dx ds si es di
+
+                xor     bx, bx
+                mov     bl, cs:[REG_TABLE_TOGGLE]
+                call    debug_draw_16bits
+
+                mov     al, cs:[REG_TABLE_TOGGLE]
+                cmp     al, 01h
+                jne     @@end
+
+                pop     di es si ds dx cx bx ax
+                push    ax bx cx dx ds si es di
+                push    ax bx cx dx
+
                 push    cs                              ;|
                 pop     ds                              ;| ds = cs (code segment)
                 mov     si, offset RECT_STYLE           ; si = rect style mem addr
@@ -59,22 +140,24 @@ do_pop:
 
                 call    show_register_tablet
 
-                jmp     ChainOldISR
+@@end:
+                jmp     JmpOldINT08
 
                 iret
                 endp
 
-ChainOldISR:
-                pop     di es si ds dx cx bx ax         ; restore prev registers
+JmpOldINT08:
+                pop     di es si ds dx cx bx ax
                 db      0eah                            ; 0eah = jmp
-old09fs         dw      0                               ; old ISR address
-old09seg        dw      0                               ; old ISR segment
+old08fs         dw      0                               ; old ISR address
+old08seg        dw      0                               ; old ISR segment
 
 
-;##########################################
+;#############################################################################################
 ;           show_register_tablet
-;------------------------------------------
-;------------------------------------------
+;-------------------------------------------------------
+; :FIXME: Разобраться с адресацией [BP+2k] по стэку
+;-------------------------------------------------------
 ; Descr:
 ;       Draws a tablet with registers (AX, BX, CX, DX) info
 ;       at right upper corner in VIDEOSEG
@@ -111,7 +194,7 @@ show_register_tablet     proc
                 mov     si, offset AX_REG_EQU
                 push    di
                 call    draw_string
-                mov     bx, [bp + 8]                    ; 1st stack arg. AX
+                mov     bx, [bp + 10]                    ; 1st stack arg. AX
                 call    draw_16bits
                 pop     di
 
@@ -119,7 +202,7 @@ show_register_tablet     proc
                 mov     si, offset BX_REG_EQU
                 push    di
                 call    draw_string
-                mov     bx, [bp + 6]                    ; 2nd stack arg. BX
+                mov     bx, [bp + 8]                    ; 2nd stack arg. BX
                 call    draw_16bits
                 pop     di
 
@@ -127,7 +210,7 @@ show_register_tablet     proc
                 mov     si, offset CX_REG_EQU
                 push di
                 call draw_string
-                mov     bx, [bp + 4]                    ; 3rd stack arg. BX
+                mov     bx, [bp + 6]                    ; 3rd stack arg. BX
                 call    draw_16bits
                 pop di
 
@@ -135,7 +218,7 @@ show_register_tablet     proc
                 mov     si, offset DX_REG_EQU
                 push di
                 call draw_string
-                mov     bx, [bp + 2]                    ; 4th stack arg. BX
+                mov     bx, [bp + 4]                    ; 4th stack arg. BX
                 call    draw_16bits
                 pop di
 
@@ -225,6 +308,34 @@ draw_string     proc
 
 
 ;//----------DEBUG_FUNCTIONS. SLOW. SIMPLE. SAFE-------------//
+
+;##########################################
+;               debug_draw_16bits
+;------------------------------------------
+;------------------------------------------
+; Descr:
+;       Draws a hex presentation of 16 bits number in videoseg by addr 0
+; Entry:
+;       BX      ; input number
+; Desroy: ?
+;------------------------------------------------------;
+debug_draw_16bits     proc
+
+                push    ax bx cx es di
+
+                mov     ah, 11001111b
+
+                mov     cx, VIDEOSEG
+                mov     es, cx
+                mov     di, 0d
+
+                call    draw_16bits
+
+                pop     di es cx bx ax
+                ret
+                endp
+;------------------------------------------
+;##########################################
 
 ;##########################################
 ;               debug_draw_char
@@ -355,6 +466,11 @@ jg @@while;---------------------------------------------; while end }
 
 
 .data
+
+REG_TABLE_TOGGLE        db  00h
+REG_TABLE_TOGGLE_TIMER  dw  0000h
+REG_TABLE_TOGGLE_DELAY  dw  0006h
+
 VIDEOSEG                equ 0b800h
 POP_KEY                 equ 22h             ; 'G'
 TEXT_END_CHAR           equ '%'
@@ -368,9 +484,6 @@ BX_REG_EQU              db "BX=%$"
 CX_REG_EQU              db "CX=%$"
 DX_REG_EQU              db "DX=%$"
 
-INT09_TOGGLE            db -1d
-
 TSR_END:
 
 end start
-
