@@ -6,6 +6,11 @@ locals @@
 org 100h
 
 start:
+
+                call    save_tablet_bgr
+                call    load_tablet_bgr
+
+
                 xor     ax, ax                          ;|
                 mov     es, ax                          ;|
                 mov     bx, 09h * 4                     ;|
@@ -64,7 +69,9 @@ ToggleTable     proc
                 jmp     @@end
 @@set_off:
                 mov     al, 00h
-                call    load_screen
+
+                mov     word ptr cs:[DEBUG_VAL_3], 0AAAAh
+                call    load_tablet_bgr
                 jmp     @@end
 @@end:
                 mov     cs:[REG_TABLE_TOGGLE], al
@@ -114,37 +121,19 @@ MyINT08         proc
 
                 push    ax bx cx dx ds si es di
 
-;*****************************DEBUG**************************************
-                push    ax bx cx dx di si es ds
+                call    debug_update_info
+                call    debug_show_info
 
-                mov     bx, VIDEOSEG                    ;|
-                mov     es, bx                          ;| es = VIDEOSEG
-
-                mov     bx, cs:[RECT_HEIGHT]            ;| rect height
-                mov     cx, cs:[RECT_WIDTH]             ;| rect width
-
-                mov     di, CONSOLE_WIDTH               ;|
-                sub     di, cx                          ;| di = (CONSOLE_WIDTH - cx - 1) * 2
-                add     di, CONSOLE_WIDTH
-                shl     di, 1                           ;| di - left upper rect corner addr
-
-                mov     dx, word ptr es:[di]
-
-                mov     ax, dx
-                mov     di, 2 * CONSOLE_WIDTH * 1
-                call    debug_draw_char
-
-                pop     ds es si di dx cx bx ax
-;*****************************DEBUG**************************************
-
-;*****************************DEBUG**************************************
-                push    bx di
+                mov     bx, VIDEOSEG
+                mov     es, bx
+                mov     di, RECT_ADDR
                 xor     bx, bx
-                mov     bl, cs:[REG_TABLE_TOGGLE]
-                mov     di, 2 * CONSOLE_WIDTH * 0
-                call    debug_draw_16bits
-                pop     di bx
-;*****************************DEBUG**************************************
+                mov     bl, es:[di]
+                cmp     bl, cs:[RECT_STYLE]
+                je      @@save_screen_end
+@@save_screen:
+                call    save_tablet_bgr
+@@save_screen_end:
 
                 mov     al, cs:[REG_TABLE_TOGGLE]
                 cmp     al, 01h
@@ -176,6 +165,32 @@ old08fs         dw      0                               ; old ISR address
 old08seg        dw      0                               ; old ISR segment
 
 
+
+;##########################################
+;        register_tablet_manager
+;------------------------------------------
+;------------------------------------------
+; Descr:
+;
+; Entry:
+;
+;
+; Desroy:
+;
+;------------------------------------------
+
+;------------------------------------------
+;##########################################
+
+
+
+
+
+
+
+
+
+
 ;#############################################################################################
 ;           show_register_tablet
 ;-------------------------------------------------------
@@ -199,26 +214,13 @@ show_register_tablet     proc
                 mov     bx, VIDEOSEG                    ;|
                 mov     es, bx                          ;| es = VIDEOSEG
 
-                mov     bx, cs:[RECT_HEIGHT]            ;| rect height
-                mov     cx, cs:[RECT_WIDTH]             ;| rect width
+                mov     bx, RECT_HEIGHT                 ;| rect height
+                mov     cx, RECT_WIDTH                  ;| rect width
+                mov     di, RECT_ADDR                   ;| rect left upper corner mem addr
 
-
-                mov     di, CONSOLE_WIDTH               ;|
-                sub     di, cx                          ;| di = (CONSOLE_WIDTH - cx - 1) * 2
-                add     di, CONSOLE_WIDTH
-                shl     di, 1                           ;| di - left upper rect corner addr
-
-                push    dx
-                mov     dx, word ptr es:[di]
-                cmp     dx, word ptr cs:[si] ;| if left upper rect corner isn't the first style sim -> save screen
-                jne     @@save_screen
                 jmp     @@start
-@@save_screen:
-                call    save_screen                     ; save last screen while tablet isn't drawn
 
 @@start:
-                pop     dx
-
                 push    di                              ;|
                 call    draw_rect                       ;| draw frame
                 pop     di                              ;|
@@ -346,30 +348,85 @@ draw_string     proc
 ;//----------DEBUG_FUNCTIONS. SLOW. SIMPLE. SAFE-------------//
 
 ;##########################################
-;               debug_draw_16bits
+;             debug_update_info
 ;------------------------------------------
 ;------------------------------------------
 ; Descr:
-;       Draws a hex presentation of 16 bits number in videoseg by bias
+;           Updates debug info from DEBUG_INFO data block
 ; Entry:
-;       DI      ; VIDEOSEG bias
-;       BX      ; input number
-; Desroy: ?
-;------------------------------------------------------;
-debug_draw_16bits     proc
-
-                push    ax bx cx es di
-
-
-                mov     cx, VIDEOSEG
-                mov     es, cx
+;           None
+;
+; Desroy:
+;           None
+;------------------------------------------
+debug_update_info proc
+                push    ax bx cx dx di si es ds
 
                 xor     ax, ax
-                mov     ah, 11001111b
+                mov     al, cs:[REG_TABLE_TOGGLE]
+                mov     cs:[DEBUG_VAL_1], ax
 
+                push    VIDEOSEG
+                pop     es
+                mov     di, RECT_ADDR
+                mov     bl, es:[di]
+                mov     cs:[DEBUG_CHAR_1], bl
+
+                pop     ds es si di dx cx bx ax
+
+                ret
+                endp
+;------------------------------------------
+;##########################################
+
+;##########################################
+;             debug_show_info
+;------------------------------------------
+;------------------------------------------
+; Descr:
+;           Prints debug info from DEBUG_INFO data block
+; Entry:
+;           None
+;
+; Desroy:
+;           None
+;------------------------------------------
+debug_show_info proc
+                push    ax bx cx dx di si es ds
+
+                mov     bx, VIDEOSEG                    ;|
+                mov     es, bx                          ;| es = VIDEOSEG
+
+                mov     ah, 01001111b
+                push    cs
+                pop     ds
+
+                mov     di, 2 * CONSOLE_WIDTH * 0
+                mov     si, offset DEBUG_LABEL_1
+                call    draw_string
+                mov     bx, cs:[DEBUG_VAL_1]
                 call    draw_16bits
 
-                pop     di es cx bx ax
+                mov     di, 2 * CONSOLE_WIDTH * 1
+                mov     si, offset DEBUG_LABEL_2
+                call    draw_string
+                mov     bx, cs:[DEBUG_VAL_2]
+                call    draw_16bits
+
+                mov     di, 2 * CONSOLE_WIDTH * 2
+                mov     si, offset DEBUG_LABEL_3
+                call    draw_string
+                mov     bx, cs:[DEBUG_VAL_3]
+                call    draw_16bits
+
+                mov     di, 2 * CONSOLE_WIDTH * 3
+                mov     si, offset DEBUG_LABEL_4
+                call    draw_string
+                mov     al, cs:[DEBUG_CHAR_1]
+                call debug_draw_char
+
+                pop     ds es si di dx cx bx ax
+
                 ret
                 endp
 ;------------------------------------------
@@ -525,6 +582,103 @@ endp
 ;------------------------------------------
 ;##########################################
 
+
+;##########################################
+;               save_tablet_bgr
+;------------------------------------------
+;------------------------------------------
+; Descr:
+;       Save video memory area, obscured by
+;        register tablet to TWIN_VIDEO_MEM
+;       Uses tablet info from 'Register tablet info' section
+; Entry:
+;       None
+; Desroy:
+;       None
+;------------------------------------------
+save_tablet_bgr     proc
+
+                push ax cx si di es ds
+
+                mov     ax, VIDEOSEG                    ;|
+                mov     ds, ax                          ;| ds = VIDEOSEG
+                push    cs                              ;|
+                pop     es                              ;| es = cs (TWIN_VIDEO_MEM segment)
+
+                mov     si, RECT_ADDR
+                mov     di, (offset TWIN_VIDEO_MEM) + RECT_ADDR
+                mov     ax, RECT_HEIGHT
+
+@@WHILE:
+                mov     cx, RECT_WIDTH
+                rep     movsw                           ; ds:[si+=2] => es:[di+=2]
+                sub     si, RECT_WIDTH * 2 - CONSOLE_WIDTH * 2
+                sub     di, RECT_WIDTH * 2 - CONSOLE_WIDTH * 2
+
+                dec     ax
+
+                cmp     ax, 0h
+                jg      @@WHILE
+
+
+                pop     ds es di si cx ax
+                ret
+                endp
+;------------------------------------------
+;##########################################
+
+;##########################################
+;               load_tablet_bgr
+;------------------------------------------
+;------------------------------------------
+; Descr:
+;       Restore video memory area, obscured by
+;        register tablet from TWIN_VIDEO_MEM
+;       Uses tablet info from 'Register tablet info' section
+; Entry:
+;       None
+; Desroy:
+;       None
+;------------------------------------------
+load_tablet_bgr     proc
+
+                push ax cx si di es ds
+
+                mov     ax, VIDEOSEG                    ;|
+                mov     es, ax                          ;| ds = VIDEOSEG
+                push    cs                              ;|
+                pop     ds                              ;| es = cs (TWIN_VIDEO_MEM segment)
+
+                mov     di, RECT_ADDR
+                mov     si, (offset TWIN_VIDEO_MEM) + RECT_ADDR
+                mov     ax, RECT_HEIGHT
+
+@@WHILE:
+                mov     cx, RECT_WIDTH
+                rep     movsw                           ; ds:[si+=2] => es:[di+=2]
+
+                dec     ax
+                sub     si, RECT_WIDTH * 2 - CONSOLE_WIDTH * 2
+                sub     di, RECT_WIDTH * 2 - CONSOLE_WIDTH * 2
+                cmp     ax, 0h
+                jg      @@WHILE
+
+
+                pop     ds es di si cx ax
+                ret
+                endp
+
+;------------------------------------------
+;##########################################
+
+
+
+
+
+
+
+
+
 ;##########################################
 ;               save_screen
 ;------------------------------------------
@@ -551,6 +705,7 @@ save_screen     proc
                 lea     di, TWIN_VIDEO_MEM                      ; di = TWIN_VIDEO_MEM addr
 
                 rep     movsw                           ; ds:[si+=2] => es:[di+=2]
+
                 pop     ds es di si cx ax
                 ret
                 endp
@@ -602,7 +757,7 @@ POP_KEY                 equ 22h             ; 'G' scan code
 TEXT_END_CHAR           equ '%'
 
 CONSOLE_WIDTH           equ 80d
-CONSOLE_HEIGHT           equ 25d
+CONSOLE_HEIGHT          equ 25d
 CONSOLE_WIDTH_BYTE      db  80d
 CONSOLE_HEIGHT_BYTE      db  25d
 
@@ -611,9 +766,23 @@ CONSOLE_HEIGHT_BYTE      db  25d
 ;           Register tablet info
 ;##########################################
 RECT_STYLE              db  "+=+|.|+=+$"
-RECT_HEIGHT             dw 9d
-RECT_WIDTH              dw 9d
+RECT_HEIGHT             equ  9d
+RECT_WIDTH              equ  9d
+RECT_ADDR               equ  (CONSOLE_WIDTH - RECT_WIDTH) * 2
 TWIN_VIDEO_MEM          dw  CONSOLE_WIDTH*CONSOLE_HEIGHT dup(?)
+;##########################################
+
+;##########################################
+;           DEBUG_INFO
+;##########################################
+DEBUG_VAL_1             dw  0000d
+DEBUG_VAL_2             dw  0000d
+DEBUG_VAL_3             dw  0000d
+DEBUG_CHAR_1            db  00d
+DEBUG_LABEL_1           db  'Toggle:%$'
+DEBUG_LABEL_2           db  'SaveSc:%$'
+DEBUG_LABEL_3           db  'LoadSc:%$'
+DEBUG_LABEL_4           db  'LefCor:%$'
 ;##########################################
 
 
