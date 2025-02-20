@@ -3,6 +3,7 @@
 *.LST
 *.MAP
 *.OBJ
-docs/
 prevs/
+extra/
+temp
 a

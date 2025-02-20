@@ -7,10 +7,6 @@ org 100h
 
 start:
 
-                call    save_tablet_bgr
-                call    load_tablet_bgr
-
-
                 xor     ax, ax                          ;|
                 mov     es, ax                          ;|
                 mov     bx, 09h * 4                     ;|
